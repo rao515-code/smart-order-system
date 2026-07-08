@@ -1,28 +1,62 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const API_URL = "http://localhost:8080/api/orders";
+import Sidebar from "./components/Sidebar";
+
+import { PRODUCTS } from "./data/products";
+import { getOrders, createOrder as createOrderApi } from "./services/orderService";
+
+import LoginPage from "./pages/LoginPage";
+import DashboardPage from "./pages/DashboardPage";
+import ProductsPage from "./pages/ProductsPage";
+import CartPage from "./pages/CartPage";
+import CheckoutPage from "./pages/CheckoutPage";
+import PaymentPage from "./pages/PaymentPage";
+import OrdersPage from "./pages/OrdersPage";
+import ShipmentsPage from "./pages/ShipmentsPage";
+import CustomersPage from "./pages/CustomersPage";
+import ReportsPage from "./pages/ReportsPage";
+import AboutPage from "./pages/AboutPage";
 
 function App() {
-  const [activePage, setActivePage] = useState("dashboard");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [activePage, setActivePage] = useState("login");
+
+  const [loginForm, setLoginForm] = useState({
+    email: "",
+    password: "",
+  });
+
   const [orders, setOrders] = useState([]);
+  const [cart, setCart] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [shipments, setShipments] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState(null);
   const [message, setMessage] = useState("");
 
-  const [form, setForm] = useState({
+  const [checkoutForm, setCheckoutForm] = useState({
     customerName: "",
-    productName: "",
-    quantity: 1,
-    price: "",
+    shippingAddress: "",
+    city: "",
+    state: "",
+    zipCode: "",
+  });
+
+  const [paymentForm, setPaymentForm] = useState({
+    cardName: "",
+    cardNumber: "",
+    expiry: "",
+    cvv: "",
   });
 
   const loadOrders = async () => {
     try {
-      const response = await fetch(API_URL);
-      const data = await response.json();
+      const data = await getOrders();
       setOrders(data);
+      setMessage("");
     } catch (error) {
       console.error("Error loading orders:", error);
-      setMessage("Unable to load orders. Please check backend.");
+      setMessage("Backend is not reachable. Please check Docker containers.");
     }
   };
 
@@ -30,317 +64,327 @@ function App() {
     loadOrders();
   }, []);
 
-  const summary = useMemo(() => {
+  const cartTotal = useMemo(() => {
+    return cart.reduce((total, item) => total + item.price * item.quantity, 0);
+  }, [cart]);
+
+  const totalCartItems = useMemo(() => {
+    return cart.reduce((total, item) => total + item.quantity, 0);
+  }, [cart]);
+
+  const dashboardSummary = useMemo(() => {
     const totalOrders = orders.length;
 
     const totalRevenue = orders.reduce((total, order) => {
-      return total + Number(order.price) * Number(order.quantity);
+      return total + Number(order.price);
     }, 0);
 
     const latestOrder =
       orders.length > 0 ? [...orders].sort((a, b) => b.id - a.id)[0] : null;
 
+    const uniqueCustomers = new Set(orders.map((order) => order.customerName));
+
     return {
       totalOrders,
       totalRevenue,
       latestOrder,
+      totalCustomers: uniqueCustomers.size,
+      totalProducts: PRODUCTS.length,
+      totalPayments: payments.length,
+      totalShipments: shipments.length,
     };
-  }, [orders]);
+  }, [orders, payments, shipments]);
 
-  const handleChange = (event) => {
+  const handleLoginChange = (event) => {
     const { name, value } = event.target;
 
-    setForm({
-      ...form,
+    setLoginForm({
+      ...loginForm,
       [name]: value,
     });
   };
 
-  const createOrder = async (event) => {
+  const handleLogin = (event) => {
     event.preventDefault();
 
+    if (!loginForm.email || !loginForm.password) {
+      setMessage("Please enter email and password.");
+      return;
+    }
+
+    setIsLoggedIn(true);
+    setActivePage("dashboard");
+    setMessage("Login successful. Welcome to Smart Commerce.");
+  };
+
+  const logout = () => {
+    setIsLoggedIn(false);
+    setActivePage("login");
+    setMessage("");
+  };
+
+  const addToCart = (product) => {
+    const existingItem = cart.find((item) => item.id === product.id);
+
+    if (existingItem) {
+      const updatedCart = cart.map((item) =>
+        item.id === product.id
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      );
+
+      setCart(updatedCart);
+    } else {
+      setCart([...cart, { ...product, quantity: 1 }]);
+    }
+
+    setMessage(`${product.name} added to cart.`);
+  };
+
+  const increaseQuantity = (productId) => {
+    const updatedCart = cart.map((item) =>
+      item.id === productId ? { ...item, quantity: item.quantity + 1 } : item
+    );
+
+    setCart(updatedCart);
+  };
+
+  const decreaseQuantity = (productId) => {
+    const updatedCart = cart
+      .map((item) =>
+        item.id === productId ? { ...item, quantity: item.quantity - 1 } : item
+      )
+      .filter((item) => item.quantity > 0);
+
+    setCart(updatedCart);
+  };
+
+  const removeFromCart = (productId) => {
+    const updatedCart = cart.filter((item) => item.id !== productId);
+    setCart(updatedCart);
+  };
+
+  const handleCheckoutChange = (event) => {
+    const { name, value } = event.target;
+
+    setCheckoutForm({
+      ...checkoutForm,
+      [name]: value,
+    });
+  };
+
+  const placeOrder = async (event) => {
+    event.preventDefault();
+
+    if (cart.length === 0) {
+      setMessage("Cart is empty.");
+      return;
+    }
+
+    const productNames = cart
+      .map((item) => `${item.name} x ${item.quantity}`)
+      .join(", ");
+
+    const totalQuantity = cart.reduce((total, item) => total + item.quantity, 0);
+
     const requestBody = {
-      customerName: form.customerName,
-      productName: form.productName,
-      quantity: Number(form.quantity),
-      price: Number(form.price),
+      customerName: checkoutForm.customerName,
+      productName: productNames,
+      quantity: totalQuantity,
+      price: cartTotal,
     };
 
     try {
-      const response = await fetch(API_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
+      const savedOrder = await createOrderApi(requestBody);
+
+      setSelectedOrder({
+        ...savedOrder,
+        shippingAddress: checkoutForm.shippingAddress,
+        city: checkoutForm.city,
+        state: checkoutForm.state,
+        zipCode: checkoutForm.zipCode,
       });
 
-      if (!response.ok) {
-        setMessage("Failed to create order.");
-        return;
-      }
-
-      setForm({
-        customerName: "",
-        productName: "",
-        quantity: 1,
-        price: "",
-      });
-
-      setMessage("Order created successfully.");
       await loadOrders();
-      setActivePage("orders");
+
+      setMessage("Order created successfully. Please complete payment.");
+      setActivePage("payment");
     } catch (error) {
-      console.error("Error creating order:", error);
-      setMessage("Backend is not reachable.");
+      console.error("Error placing order:", error);
+      setMessage("Order creation failed. Please check backend.");
     }
   };
 
-  const renderDashboard = () => (
-    <section>
-      <div className="page-header">
-        <div>
-          <h1>Smart Order Dashboard</h1>
-          <p>React + Spring Boot + PostgreSQL + Kafka + Docker</p>
-        </div>
-        <button className="secondary-button" onClick={loadOrders}>
-          Refresh
-        </button>
-      </div>
+  const handlePaymentChange = (event) => {
+    const { name, value } = event.target;
 
-      <div className="cards">
-        <div className="card">
-          <h3>Total Orders</h3>
-          <p>{summary.totalOrders}</p>
-        </div>
+    setPaymentForm({
+      ...paymentForm,
+      [name]: value,
+    });
+  };
 
-        <div className="card">
-          <h3>Total Revenue</h3>
-          <p>${summary.totalRevenue.toFixed(2)}</p>
-        </div>
+  const processPayment = (event) => {
+    event.preventDefault();
 
-        <div className="card">
-          <h3>Latest Order</h3>
-          <p>{summary.latestOrder ? summary.latestOrder.productName : "No orders"}</p>
-        </div>
-      </div>
+    if (!selectedOrder) {
+      setMessage("Please place an order before payment.");
+      return;
+    }
 
-      <div className="panel">
-        <h2>Application Flow</h2>
-        <div className="flow">
-          <span>React UI</span>
-          <span>→</span>
-          <span>Spring Boot API</span>
-          <span>→</span>
-          <span>PostgreSQL</span>
-          <span>→</span>
-          <span>Kafka</span>
-          <span>→</span>
-          <span>Consumer</span>
-        </div>
-      </div>
-    </section>
-  );
+    const payment = {
+      id: payments.length + 1,
+      orderId: selectedOrder.id,
+      customerName: selectedOrder.customerName,
+      amount: Number(selectedOrder.price),
+      status: "SUCCESS",
+      transactionId: `PAY-${Date.now()}`,
+      paidAt: new Date().toLocaleString(),
+    };
 
-  const renderCreateOrder = () => (
-    <section>
-      <div className="page-header">
-        <div>
-          <h1>Create Order</h1>
-          <p>Create a new order and publish an event to Kafka.</p>
-        </div>
-      </div>
+    const shipment = {
+      id: shipments.length + 1,
+      orderId: selectedOrder.id,
+      customerName: selectedOrder.customerName,
+      address: selectedOrder.shippingAddress,
+      city: selectedOrder.city,
+      state: selectedOrder.state,
+      zipCode: selectedOrder.zipCode,
+      status: "READY_TO_SHIP",
+      trackingNumber: `TRK-${Date.now()}`,
+      createdAt: new Date().toLocaleString(),
+    };
 
-      <form className="form-card" onSubmit={createOrder}>
-        <div className="form-group">
-          <label>Customer Name</label>
-          <input
-            type="text"
-            name="customerName"
-            value={form.customerName}
-            onChange={handleChange}
-            placeholder="Enter customer name"
-            required
-          />
-        </div>
+    setPayments([...payments, payment]);
+    setShipments([...shipments, shipment]);
+    setCart([]);
 
-        <div className="form-group">
-          <label>Product Name</label>
-          <input
-            type="text"
-            name="productName"
-            value={form.productName}
-            onChange={handleChange}
-            placeholder="Enter product name"
-            required
-          />
-        </div>
+    setCheckoutForm({
+      customerName: "",
+      shippingAddress: "",
+      city: "",
+      state: "",
+      zipCode: "",
+    });
 
-        <div className="form-row">
-          <div className="form-group">
-            <label>Quantity</label>
-            <input
-              type="number"
-              name="quantity"
-              value={form.quantity}
-              onChange={handleChange}
-              min="1"
-              required
-            />
-          </div>
+    setPaymentForm({
+      cardName: "",
+      cardNumber: "",
+      expiry: "",
+      cvv: "",
+    });
 
-          <div className="form-group">
-            <label>Price</label>
-            <input
-              type="number"
-              name="price"
-              value={form.price}
-              onChange={handleChange}
-              min="0.01"
-              step="0.01"
-              placeholder="Enter price"
-              required
-            />
-          </div>
-        </div>
-
-        <button className="primary-button" type="submit">
-          Create Order
-        </button>
-      </form>
-    </section>
-  );
-
-  const renderOrders = () => (
-    <section>
-      <div className="page-header">
-        <div>
-          <h1>Orders</h1>
-          <p>Orders loaded from PostgreSQL through Spring Boot API.</p>
-        </div>
-        <button className="secondary-button" onClick={loadOrders}>
-          Reload Orders
-        </button>
-      </div>
-
-      <div className="table-card">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Customer</th>
-              <th>Product</th>
-              <th>Quantity</th>
-              <th>Price</th>
-              <th>Status</th>
-              <th>Created At</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {orders.map((order) => (
-              <tr key={order.id}>
-                <td>{order.id}</td>
-                <td>{order.customerName}</td>
-                <td>{order.productName}</td>
-                <td>{order.quantity}</td>
-                <td>${order.price}</td>
-                <td>
-                  <span className="status">{order.status}</span>
-                </td>
-                <td>{order.createdAt}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-
-  const renderArchitecture = () => (
-    <section>
-      <div className="page-header">
-        <div>
-          <h1>Project Architecture</h1>
-          <p>How each part of the Smart Order System communicates.</p>
-        </div>
-      </div>
-
-      <div className="architecture">
-        <div className="arch-box">
-          <h3>1. React Frontend</h3>
-          <p>User creates orders from the UI. React calls Spring Boot REST APIs using fetch.</p>
-        </div>
-
-        <div className="arch-box">
-          <h3>2. Spring Boot Backend</h3>
-          <p>Controller receives requests, service handles business logic, repository saves data.</p>
-        </div>
-
-        <div className="arch-box">
-          <h3>3. PostgreSQL</h3>
-          <p>Stores order data in the orders table using Spring Data JPA.</p>
-        </div>
-
-        <div className="arch-box">
-          <h3>4. Kafka</h3>
-          <p>After saving an order, backend publishes OrderCreatedEvent to order.created topic.</p>
-        </div>
-
-        <div className="arch-box">
-          <h3>5. Kafka Consumer</h3>
-          <p>@KafkaListener receives the event and logs/processes the order details.</p>
-        </div>
-      </div>
-    </section>
-  );
-
-  const renderAbout = () => (
-    <section>
-      <div className="page-header">
-        <div>
-          <h1>About Project</h1>
-          <p>This project demonstrates full-stack development and event-driven architecture.</p>
-        </div>
-      </div>
-
-      <div className="panel">
-        <h2>Technologies Used</h2>
-        <ul className="tech-list">
-          <li>React frontend</li>
-          <li>Spring Boot REST API</li>
-          <li>Spring Data JPA</li>
-          <li>PostgreSQL database</li>
-          <li>Apache Kafka messaging</li>
-          <li>Docker and Docker Compose</li>
-          <li>Git and GitHub</li>
-        </ul>
-      </div>
-
-    </section>
-  );
+    setMessage("Payment completed and shipment created.");
+    setActivePage("shipments");
+  };
 
   const renderPage = () => {
-    if (activePage === "dashboard") return renderDashboard();
-    if (activePage === "create") return renderCreateOrder();
-    if (activePage === "orders") return renderOrders();
-    if (activePage === "architecture") return renderArchitecture();
-    if (activePage === "about") return renderAbout();
-    return renderDashboard();
+    if (!isLoggedIn) {
+      return (
+        <LoginPage
+          loginForm={loginForm}
+          handleLoginChange={handleLoginChange}
+          handleLogin={handleLogin}
+        />
+      );
+    }
+
+    if (activePage === "dashboard") {
+      return (
+        <DashboardPage
+          dashboardSummary={dashboardSummary}
+          loadOrders={loadOrders}
+        />
+      );
+    }
+
+    if (activePage === "products") {
+      return (
+        <ProductsPage
+          products={PRODUCTS}
+          addToCart={addToCart}
+          totalCartItems={totalCartItems}
+          setActivePage={setActivePage}
+        />
+      );
+    }
+
+    if (activePage === "cart") {
+      return (
+        <CartPage
+          cart={cart}
+          cartTotal={cartTotal}
+          increaseQuantity={increaseQuantity}
+          decreaseQuantity={decreaseQuantity}
+          removeFromCart={removeFromCart}
+          setActivePage={setActivePage}
+        />
+      );
+    }
+
+    if (activePage === "checkout") {
+      return (
+        <CheckoutPage
+          checkoutForm={checkoutForm}
+          handleCheckoutChange={handleCheckoutChange}
+          placeOrder={placeOrder}
+          cart={cart}
+          cartTotal={cartTotal}
+        />
+      );
+    }
+
+    if (activePage === "payment") {
+      return (
+        <PaymentPage
+          selectedOrder={selectedOrder}
+          paymentForm={paymentForm}
+          handlePaymentChange={handlePaymentChange}
+          processPayment={processPayment}
+          setActivePage={setActivePage}
+        />
+      );
+    }
+
+    if (activePage === "orders") {
+      return <OrdersPage orders={orders} loadOrders={loadOrders} />;
+    }
+
+    if (activePage === "shipments") {
+      return <ShipmentsPage shipments={shipments} />;
+    }
+
+    if (activePage === "customers") {
+      return <CustomersPage orders={orders} />;
+    }
+
+    if (activePage === "reports") {
+      return <ReportsPage dashboardSummary={dashboardSummary} />;
+    }
+
+    if (activePage === "about") {
+      return <AboutPage />;
+    }
+
+    return (
+      <DashboardPage
+        dashboardSummary={dashboardSummary}
+        loadOrders={loadOrders}
+      />
+    );
   };
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <h2>Smart Order</h2>
-        <button onClick={() => setActivePage("dashboard")}>Dashboard</button>
-        <button onClick={() => setActivePage("create")}>Create Order</button>
-        <button onClick={() => setActivePage("orders")}>Orders</button>
-        <button onClick={() => setActivePage("architecture")}>Architecture</button>
-        <button onClick={() => setActivePage("about")}>About</button>
-      </aside>
+      {isLoggedIn && (
+        <Sidebar
+          setActivePage={setActivePage}
+          totalCartItems={totalCartItems}
+          logout={logout}
+        />
+      )}
 
-      <main className="main-content">
+      <main className={isLoggedIn ? "main-content" : "login-content"}>
         {message && <div className="message">{message}</div>}
         {renderPage()}
       </main>
