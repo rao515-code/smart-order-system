@@ -317,14 +317,6 @@ function App() {
         </ul>
       </div>
 
-      <div className="panel">
-        <h2>Manager Explanation</h2>
-        <p>
-          This application allows users to create orders from a React UI. The backend saves
-          the order into PostgreSQL and publishes an event to Kafka. A Kafka consumer listens
-          to the event and processes it. The full system runs using Docker Compose.
-        </p>
-      </div>
     </section>
   );
 
