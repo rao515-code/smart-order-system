@@ -3,7 +3,9 @@ package com.smartorder.backend.service;
 import com.smartorder.backend.dto.PaymentRequest;
 import com.smartorder.backend.dto.PaymentResponse;
 import com.smartorder.backend.entity.Payment;
+import com.smartorder.backend.event.PaymentCompletedEvent;
 import com.smartorder.backend.repository.PaymentRepository;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -11,10 +13,17 @@ import java.time.LocalDateTime;
 @Service
 public class PaymentService {
 
-    private final PaymentRepository paymentRepository;
+    private static final String PAYMENT_COMPLETED_TOPIC = "payment.completed";
 
-    public PaymentService(PaymentRepository paymentRepository) {
+    private final PaymentRepository paymentRepository;
+    private final KafkaTemplate<String, PaymentCompletedEvent> kafkaTemplate;
+
+    public PaymentService(
+            PaymentRepository paymentRepository,
+            KafkaTemplate<String, PaymentCompletedEvent> kafkaTemplate
+    ) {
         this.paymentRepository = paymentRepository;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     public PaymentResponse processPayment(PaymentRequest paymentRequest) {
@@ -31,6 +40,19 @@ public class PaymentService {
         );
 
         Payment savedPayment = paymentRepository.save(payment);
+
+        PaymentCompletedEvent paymentCompletedEvent = new PaymentCompletedEvent(
+                savedPayment.getId(),
+                savedPayment.getOrderId(),
+                savedPayment.getCustomerName(),
+                savedPayment.getAmount(),
+                savedPayment.getStatus(),
+                savedPayment.getTransactionId()
+        );
+
+        kafkaTemplate.send(PAYMENT_COMPLETED_TOPIC, paymentCompletedEvent);
+
+        System.out.println("Payment completed event sent to Kafka: " + savedPayment.getTransactionId());
 
         return mapToPaymentResponse(savedPayment);
     }
