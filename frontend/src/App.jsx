@@ -3,8 +3,8 @@ import "./App.css";
 
 import Sidebar from "./components/Sidebar";
 
-import { PRODUCTS } from "./data/products";
 import { getOrders, createOrder as createOrderApi } from "./services/orderService";
+import { getProducts } from "./services/productService";
 
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -28,6 +28,7 @@ function App() {
   });
 
   const [orders, setOrders] = useState([]);
+  const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [payments, setPayments] = useState([]);
   const [shipments, setShipments] = useState([]);
@@ -53,15 +54,25 @@ function App() {
     try {
       const data = await getOrders();
       setOrders(data);
-      setMessage("");
     } catch (error) {
       console.error("Error loading orders:", error);
       setMessage("Backend is not reachable. Please check Docker containers.");
     }
   };
 
+  const loadProducts = async () => {
+    try {
+      const data = await getProducts();
+      setProducts(data);
+    } catch (error) {
+      console.error("Error loading products:", error);
+      setMessage("Products could not be loaded. Please check backend.");
+    }
+  };
+
   useEffect(() => {
     loadOrders();
+    loadProducts();
   }, []);
 
   const cartTotal = useMemo(() => {
@@ -89,11 +100,11 @@ function App() {
       totalRevenue,
       latestOrder,
       totalCustomers: uniqueCustomers.size,
-      totalProducts: PRODUCTS.length,
+      totalProducts: products.length,
       totalPayments: payments.length,
       totalShipments: shipments.length,
     };
-  }, [orders, payments, shipments]);
+  }, [orders, products, payments, shipments]);
 
   const handleLoginChange = (event) => {
     const { name, value } = event.target;
@@ -301,7 +312,7 @@ function App() {
     if (activePage === "products") {
       return (
         <ProductsPage
-          products={PRODUCTS}
+          products={products}
           addToCart={addToCart}
           totalCartItems={totalCartItems}
           setActivePage={setActivePage}
