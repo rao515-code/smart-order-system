@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 
 import { getOrders, createOrder as createOrderApi } from "./services/orderService";
 import { getProducts } from "./services/productService";
+import { processPayment as processPaymentApi } from "./services/paymentService";
 
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -235,7 +236,7 @@ function App() {
     });
   };
 
-  const processPayment = (event) => {
+  const processPayment = async (event) => {
     event.preventDefault();
 
     if (!selectedOrder) {
@@ -243,50 +244,53 @@ function App() {
       return;
     }
 
-    const payment = {
-      id: payments.length + 1,
+    const paymentRequest = {
       orderId: selectedOrder.id,
       customerName: selectedOrder.customerName,
       amount: Number(selectedOrder.price),
-      status: "SUCCESS",
-      transactionId: `PAY-${Date.now()}`,
-      paidAt: new Date().toLocaleString(),
     };
 
-    const shipment = {
-      id: shipments.length + 1,
-      orderId: selectedOrder.id,
-      customerName: selectedOrder.customerName,
-      address: selectedOrder.shippingAddress,
-      city: selectedOrder.city,
-      state: selectedOrder.state,
-      zipCode: selectedOrder.zipCode,
-      status: "READY_TO_SHIP",
-      trackingNumber: `TRK-${Date.now()}`,
-      createdAt: new Date().toLocaleString(),
-    };
+    try {
+      const savedPayment = await processPaymentApi(paymentRequest);
 
-    setPayments([...payments, payment]);
-    setShipments([...shipments, shipment]);
-    setCart([]);
+      const shipment = {
+        id: shipments.length + 1,
+        orderId: selectedOrder.id,
+        customerName: selectedOrder.customerName,
+        address: selectedOrder.shippingAddress,
+        city: selectedOrder.city,
+        state: selectedOrder.state,
+        zipCode: selectedOrder.zipCode,
+        status: "READY_TO_SHIP",
+        trackingNumber: `TRK-${Date.now()}`,
+        createdAt: new Date().toLocaleString(),
+      };
 
-    setCheckoutForm({
-      customerName: "",
-      shippingAddress: "",
-      city: "",
-      state: "",
-      zipCode: "",
-    });
+      setPayments([...payments, savedPayment]);
+      setShipments([...shipments, shipment]);
+      setCart([]);
 
-    setPaymentForm({
-      cardName: "",
-      cardNumber: "",
-      expiry: "",
-      cvv: "",
-    });
+      setCheckoutForm({
+        customerName: "",
+        shippingAddress: "",
+        city: "",
+        state: "",
+        zipCode: "",
+      });
 
-    setMessage("Payment completed and shipment created.");
-    setActivePage("shipments");
+      setPaymentForm({
+        cardName: "",
+        cardNumber: "",
+        expiry: "",
+        cvv: "",
+      });
+
+      setMessage("Payment saved in backend and shipment created.");
+      setActivePage("shipments");
+    } catch (error) {
+      console.error("Error processing payment:", error);
+      setMessage("Payment failed. Please check backend.");
+    }
   };
 
   const renderPage = () => {
